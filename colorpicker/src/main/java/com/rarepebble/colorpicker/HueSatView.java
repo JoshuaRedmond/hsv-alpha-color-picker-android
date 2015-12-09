@@ -25,6 +25,8 @@ import android.graphics.Path;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -55,7 +57,6 @@ public class HueSatView extends SquareView implements ObservableColor.Observer {
 		pointerPaint.setColor(0xff000000);
 		pointerPath = Resources.makePointerPath(context);
 		borderPath = new Path();
-		bitmap = makeBitmap(1);
 	}
 
 	public void observeColor(ObservableColor observableColor) {
@@ -80,7 +81,8 @@ public class HueSatView extends SquareView implements ObservableColor.Observer {
 
 		final int scale = 2;
 		final int bitmapRadius = Math.min(w, h) / scale;
-		bitmap = makeBitmap(bitmapRadius);
+
+		new MakeBitmapTask().execute(bitmapRadius);
 
 		// Sets pointer position
 		updateColor(observableColor);
@@ -149,7 +151,24 @@ public class HueSatView extends SquareView implements ObservableColor.Observer {
 	@Override
 	protected void onDraw(Canvas canvas) {
 		super.onDraw(canvas);
-		canvas.drawBitmap(bitmap, null, viewRect, null);
+		if(null==bitmap)
+		{
+			final Drawable drawable;
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP)
+			{
+				drawable = getResources().getDrawable(R.drawable.palatte_placeholder, this.getContext().getTheme());
+			}
+			else
+			{
+				drawable = getResources().getDrawable(R.drawable.palatte_placeholder);
+			}
+			assert drawable != null;
+			drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+			drawable.draw(canvas);
+		}else {
+			canvas.drawBitmap(bitmap, null, viewRect, null);
+		}
+
 		canvas.drawPath(borderPath, borderPaint);
 
 		canvas.save(Canvas.MATRIX_SAVE_FLAG|Canvas.CLIP_SAVE_FLAG);
@@ -161,23 +180,51 @@ public class HueSatView extends SquareView implements ObservableColor.Observer {
 		canvas.restore();
 	}
 
-	private static Bitmap makeBitmap(int radiusPx) {
-		int[] colors = new int[radiusPx * radiusPx];
-		float[] hsv = new float[]{0f, 0f, 1f};
-		for (int y = 0; y < radiusPx; ++y) {
-			for (int x = 0; x < radiusPx; ++x) {
-				int i = x + y * radiusPx;
-				float sat = satForPos(x, y, radiusPx);
-				int alpha = (int)(Math.max(0, Math.min(1, (1 - sat) * radiusPx)) * 255); // antialias edge
-				hsv[0] = hueForPos(x, y, radiusPx);
-				hsv[1] = sat;
-				colors[i] = Color.HSVToColor(alpha, hsv);
+	private class MakeBitmapTask extends AsyncTask<Integer, Void, Bitmap>
+	{
+
+		@Override
+		protected Bitmap doInBackground(Integer... params)
+		{
+			int radiusPx = 1;
+			if(params.length==1)
+			{
+				 radiusPx = params[0];
 			}
+			int[] colors = new int[radiusPx * radiusPx];
+			float[] hsv = new float[]{0f, 0f, 1f};
+			for (int y = 0; y < radiusPx; ++y) {
+				for (int x = 0; x < radiusPx; ++x) {
+					int i = x + y * radiusPx;
+					float sat =	 satForPos(x, y, radiusPx);
+					int alpha = (int)(Math.max(0, Math.min(1, (1 - sat) * radiusPx)) * 255); // antialias edge
+					hsv[0] = hueForPos(x, y, radiusPx);
+					hsv[1] = sat;
+					colors[i] = Color.HSVToColor(alpha, hsv);
+				}
+			}
+			return Bitmap.createBitmap(colors, radiusPx, radiusPx, Bitmap.Config.ARGB_8888);
 		}
-		return Bitmap.createBitmap(colors, radiusPx, radiusPx, Bitmap.Config.ARGB_8888);
+
+		@Override
+		protected void onPostExecute(Bitmap resultBitmap)
+		{
+			super.onPostExecute(resultBitmap);
+			bitmap = resultBitmap;
+			invalidate();
+		}
+
+		private float hueForPos(float x, float y, float radiusPx) {
+			return HueSatView.hueForPos(x,y,radiusPx);
+		}
+
+		private float satForPos(float x, float y, float radiusPx) {
+			return HueSatView.satForPos(x,y,radiusPx);
+		}
+
 	}
 
-	private static float hueForPos(float x, float y, float radiusPx) {
+	protected static float hueForPos(float x, float y, float radiusPx) {
 		final double r = radiusPx - 1; // gives values 0...1 inclusive
 		final double dx = (r - x) / r;
 		final double dy = (r - y) / r;
@@ -186,7 +233,7 @@ public class HueSatView extends SquareView implements ObservableColor.Observer {
 		return (float)hue;
 	}
 
-	private static float satForPos(float x, float y, float radiusPx) {
+	protected static float satForPos(float x, float y, float radiusPx) {
 		final double r = radiusPx - 1; // gives values 0...1 inclusive
 		final double dx = (r - x) / r;
 		final double dy = (r - y) / r;
